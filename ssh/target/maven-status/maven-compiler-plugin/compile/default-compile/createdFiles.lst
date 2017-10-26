@@ -1,0 +1,5 @@
+com\lin\ssh\controller\LinController.class
+com\lin\ssh\bean\Lin.class
+com\lin\ssh\service\LinService.class
+com\lin\ssh\dao\BaseDao.class
+com\lin\ssh\serviceimpl\LinServiceImpl.class

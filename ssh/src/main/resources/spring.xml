@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:tx="http://www.springframework.org/schema/tx"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.0.xsd
+		http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.0.xsd
+		http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-4.0.xsd">
+	<!--加载配置文件  -->
+	<context:property-placeholder location="classpath:config.properties"/>
+	
+	<!--扫描包  -->
+	<context:component-scan base-package="com.lin.ssh">
+		<context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+	</context:component-scan>
+
+	<!--数据源  -->
+	<bean class="com.mchange.v2.c3p0.ComboPooledDataSource" id="dataSource">
+		<property name="user" value="${db.lin.user}"></property>
+		<property name="password" value="${db.lin.password}"></property>
+		<property name="jdbcUrl" value="${db.lin.jdbcUrl}"></property>
+		<property name="driverClass" value="${db.lin.driverClass}"></property>
+	</bean>
+	
+	<!-- 配置hibernate session工厂 ,替代以前的mybatis-->  
+    <bean id="sessionFactory" class="org.springframework.orm.hibernate4.LocalSessionFactoryBean">  
+        <property name="dataSource" ref="dataSource" />  
+        <!-- 配置 hibernate 的基本信息 -->
+        <property name="hibernateProperties">  
+            <props>  
+                <!-- 指定自动生成数据表的策略 -->
+                <prop key="hibernate.hbm2ddl.auto">${hibernate.lin.hbm2ddl.auto}</prop>  
+               	<!-- hibernate 所使用的数据库方言 -->
+                <prop key="hibernate.dialect">${hibernate.lin.dialect}</prop>  
+                <!-- 执行操作时是否在控制台打印 SQL -->
+                <prop key="hibernate.show_sql">${hibernate.lin.show_sql}</prop>  
+                <!-- 是否对 SQL 进行格式化 -->
+                <prop key="hibernate.format_sql">${hibernate.lin.format_sql}</prop>  
+            </props>  
+        </property>  
+        <!-- 自动扫描注解方式配置的hibernate类文件 -->  
+        <property name="packagesToScan">  
+            <list>  
+                <value>com.lin.ssh.bean</value>  
+            </list>  
+        </property>  
+    </bean>  
+  
+    <!-- 配置事务管理器 -->  
+    <bean id="transactionManager" class="org.springframework.orm.hibernate4.HibernateTransactionManager">  
+        <property name="sessionFactory" ref="sessionFactory"></property>  
+    </bean>  
+	
+	<aop:config>
+		<aop:pointcut expression="execution(* com.lin.ssh.service.*.*(..))" id="sshPointcut"/>
+		<aop:advisor advice-ref="sshAdvisor" pointcut-ref="sshPointcut"/>
+	</aop:config>
+	<tx:advice id="sshAdvisor" transaction-manager="transactionManager">
+		<tx:attributes>
+			<tx:method name="get*" read-only="true"/>
+			<tx:method name="delete*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+			<tx:method name="save*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+			<tx:method name="update*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+		</tx:attributes>
+	</tx:advice>
+</beans>

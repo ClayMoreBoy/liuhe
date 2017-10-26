@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:tx="http://www.springframework.org/schema/tx"
+	xmlns:cache="http://www.springframework.org/schema/cache"
+	xsi:schemaLocation="http://www.springframework.org/schema/cache http://www.springframework.org/schema/cache/spring-cache-4.0.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.0.xsd
+		http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.0.xsd
+		http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-4.0.xsd">
+	<!-- 扫描组件 -->
+	<context:component-scan base-package="com.lin.liuhe">
+		<context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+		<context:exclude-filter type="annotation" expression="org.springframework.web.bind.annotation.ControllerAdvice"/>
+	</context:component-scan>
+	<!--进行数据库连接parent数据库 -->
+	<bean class="com.mchange.v2.c3p0.ComboPooledDataSource" id="dataSource" abstract="true" >
+		<constructor-arg name="configName" value="liiuhe"></constructor-arg>
+	</bean>
+	<context:property-placeholder location="classpath:liu-*.properties"/>
+	<!-- main数据库 -->
+	<bean parent="dataSource" id="mainDataSource">
+		<property name="jdbcUrl" value="${main.jdbcUrl}"></property>
+	</bean>
+	<!-- log数据库 -->
+	<bean parent="dataSource" id="logDataSource">
+		<property name="jdbcUrl" value="${log.jdbcUrl}"></property>
+	</bean>
+	<!--配置路由器数据源  -->
+	<bean class="com.lin.liuhe.router.MyRouterData" id="MyRouterData">
+		<property name="targetDataSources">
+			<map>
+				 <!-- 配置具体数据源的键值对 -->
+				<entry key="MAIN_DATASOURCE_KEY" value-ref="mainDataSource"></entry>
+				<entry key="LOG_DATASOURCE_KEY" value-ref="logDataSource"></entry>
+			</map>
+		</property>
+		<!--配置默认数据源  -->
+		<property name="defaultTargetDataSource" value="#{mainDataSource}"></property>
+	</bean>
+	<!-- 管理数据源 -->
+	<bean class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="dataSourceTransactionManager">
+		<property name="dataSource" value="#{MyRouterData}"></property>
+	</bean>
+	<!--事务  -->
+	<aop:config>
+		<!--切面表达式  -->
+		<aop:pointcut expression="execution(* com.lin.liuhe.service.*.*(..))" id="surveyPoint"/>
+		<!-- 切面管理器 -->
+		<aop:advisor advice-ref="myAdvice" pointcut-ref="surveyPoint"  order="3" />
+	</aop:config>
+	<!--增强事务  -->
+	<tx:advice id="myAdvice" transaction-manager="dataSourceTransactionManager">
+		<tx:attributes>
+			<tx:method name="save*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+			<tx:method name="delete*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+			<tx:method name="update*" propagation="REQUIRES_NEW" rollback-for="java.lang.Exception"/>
+			<tx:method name="createTableLog" rollback-for="java.lang.Exception"/>
+			<tx:method name="saveCurrentLog" rollback-for="java.lang.Exception"/>
+		</tx:attributes>
+	</tx:advice>
+	<!--mybatis来管理数据的增删，改查  -->
+	<bean class="org.mybatis.spring.SqlSessionFactoryBean" id="ssqlsessionFactory">
+		<property name="configLocation" value="classpath:mybatis.xml"></property>
+		<property name="dataSource" ref="MyRouterData"></property>
+		<property name="typeAliasesPackage" value="com.lin.liuhe.pojo"></property>
+		<property name="mapperLocations" value="classpath:com/lin/liuhe/mapper/*.xml"></property>
+	</bean>
+	<!-- 管理mapper -->
+	<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer" id="mapperScan">
+		<property name="basePackage" value="com.lin.survey.liuhe.mapper"></property>
+	</bean>
+	<!--配置日志切面的bean  -->
+	<!-- <bean class="com.lin.survey.log.aspect.MyLogAspect" id="mylogaspect" ></bean> -->
+	<!--切面日志管理器  -->
+	<!-- <aop:config>
+		切面表达式 ,这里加bean
+		<aop:pointcut expression="execution(* com.lin.liuhe.service.*.*(..))
+		 and !bean(managerLogServiceImpl) and !execution(* com.lin.liuhe.service.*.get*(..))" id="logPoint"/>
+		<aop:aspect id="mylog" ref="mylogaspect" order="2">
+			<aop:around method="recordLog" pointcut-ref="logPoint"/>
+		</aop:aspect>
+	</aop:config> -->
+	
+	<!-- 定义一个任务类 -->
+    <bean id="myJob" class="com.lin.liuhe.router.MyQuartzTask">
+    	<property name="managerLogService" ref="managerLogServiceImpl"></property>
+    	<property name="redisUtils" ref="redisUtilsImpl"></property>
+    </bean>
+
+    <!-- jobDetail 获取资源的方法-->
+    <bean id="jobDetail" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="myJob"></property>
+        <property name="targetMethod" value="executeInternal"></property><!-- 要执行的方法 -->
+        <property name="concurrent" value="false" /><!-- 作业不并发调度  -->
+    </bean>
+
+    <!-- 定义trigger 触发器 获取资源的方法-->
+    <bean id="cronTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+        <property name="jobDetail" ref="jobDetail"></property>
+        <!--每天的12:20,12:45,19:20,19:45,20:20,20:45  -->
+        <property name="cronExpression" value="* 20,45 03,13,19,20 * * ?"></property>
+        <!-- <property name="cronExpression" value="20 * * * * ?"></property>  -->
+      <!--  <property name="cronExpression" value="20,50 * * * * ?"></property>  -->
+    </bean>
+    
+    
+    <!-- jobDetail开奖的执行方法 -->
+    <bean id="jobDetail1" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="myJob1"></property>
+        <property name="targetMethod" value="executeInternal"></property><!-- 要执行的方法 -->
+        <property name="concurrent" value="false" /><!-- 作业不并发调度  -->
+    </bean>
+	<!-- 定义一个任务类 开奖的执行方法-->
+    <bean id="myJob1" class="com.lin.liuhe.router.MyQuartzTaskKaiJiang">
+    	<!-- <property name="httpClientService" ref="httpClientServiceImpl"></property> -->
+    	<property name="redisUtils" ref="redisUtilsImpl"></property>
+    </bean>
+    <!-- 定义trigger 触发器开奖的执行方法 -->
+    <bean id="cronTrigger1" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+        <property name="jobDetail" ref="jobDetail1"></property>
+        <!--每天的12:20,12:45,19:20,19:45,20:20,20:45  -->
+        <property name="cronExpression" value="0/5 33,34,35,36,37 21 * * ?"></property>
+    </bean>
+
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+           <list>
+                <ref bean="cronTrigger"/>
+                <ref bean="cronTrigger1"/>
+           </list>
+        </property>
+        <property name="quartzProperties">
+			<props>
+				<!-- 禁掉联网更新这个功能,主要是这个参数 -->
+				<prop key="org.quartz.scheduler.skipUpdateCheck">true</prop>
+			</props>
+		</property>
+    </bean>
+    <!--加载redis  -->
+    <import resource="spring-redis.xml"/>
+    <!--加载client  -->
+ <!--   <import resource="spring-client.xml"/> -->
+	<!-- 配置创建日志表的监听器 -->
+	<!-- <bean class="com.lin.liuhe.utils.MyCreateQuartzLog"  id="quartzList"></bean> --> 
+	
+	<!--自定义键生成器  -->
+	<!-- <bean class="com.lin.survey.key.ehcache.MyEhCacheLKey" id="myEhcacheKey"></bean> -->
+	<!--配置缓存管理器 工厂bean -->
+	<!-- <bean id="ehcacheFactory" class="org.springframework.cache.ehcache.EhCacheManagerFactoryBean">
+		<property name="configLocation" value="classpath:ehcache.xml"></property>
+	</bean>
+	<bean class="org.springframework.cache.ehcache.EhCacheCacheManager" id="ehcacheManager">
+		<property name="cacheManager" ref="ehcacheFactory"></property>
+	</bean> -->
+	<!--配置缓存的  -->
+	<!-- <aop:config>
+		<aop:pointcut expression="execution(* *..ManagerResService.getAllRes(..))" id="MycachePoint"/>
+		<aop:advisor advice-ref="myceh" pointcut-ref="MycachePoint" order="1"/>
+	</aop:config> -->
+	<!-- 配置缓存通知 -->
+	<!-- <cache:advice cache-manager="ehcacheManager" key-generator="myEhcacheKey" id="myceh">
+		在cache属性中指定缓存区域的名称
+		<cache:caching cache="rescache">
+			指定要使用缓存的具体方法，要求必须是缓存切入点覆盖范围内的方法
+			<cache:cacheable method="getAllRes"/>
+		</cache:caching>
+	</cache:advice> -->
+</beans>
